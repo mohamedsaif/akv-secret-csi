@@ -13,13 +13,24 @@
 <div class="container">
     <div class="row align-items-center">
         <div class="col">
-            Secret 1
+            <b>Storage Connection (ENV)</b>
         </div>
         <div class="col">
-            Secret 2
+            <b>Service Bus Connection (ENV)</b>
         </div>
         <div class="col">
-            Secret 3
+            <b>Mount Data (FILE)</b>
+        </div>
+    </div>
+    <div class="row align-items-center">
+        <div class="col">
+            @Model.StorageConnection
+        </div>
+        <div class="col">
+            @Model.SBConnection
+        </div>
+        <div class="col">
+            @Model.MountData
         </div>
     </div>
 </div>

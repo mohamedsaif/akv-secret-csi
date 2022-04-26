@@ -105,6 +105,8 @@ Let's check the different approaches to install the AKV CSI driver.
 
 #### Installing AKV CSI via AKS Add-On
 
+>**NOTE:** As of this commit, I've detected an issue with auto-rotation of secrets using CSI with AKS add-on experience. If auto-rotation is critical to your implementation, I would recommend using the helm installation instead until this issue is resolved.
+
 Although you can enable it via Azure Portal, I highly recommend enabling it via CLI to ensure all required configuration exists:
 
 ```bash 
@@ -221,14 +223,34 @@ When you open the app in the browser, you should be able to see secret values fr
 
 If you wish to to update the secret in AKV, then wait for at least 2 mins, you should see the secret rotated with the new values:
 
+![webapp-rotated](res/webapp-rotated.jpg)
+
+>NOTE: Only the app was able to get the updated value from the mount while the synced secret as environment variable remained with its initial value which is expected as environment variables will only set during initialization of the pod (even if the underlying secret is updated).
+
+Also if you check the pod's Kubernetes events, you should see rotation events:
+
 ![aks-rotation](res/webapp-rotation.jpg)
+
+
 
 ## Diagnosis
 
 Below are few commands that are helpful in debugging issues:
 
 ```bash
+# if installed via AKS add-on
+kubectl get pods -n kube-system -l 'app in (secrets-store-csi-driver, secrets-store-provider-azure)' -o wide
 
+# if installed via helm
+kubectl get pods -n kube-system -l app=csi-secrets-store-provider-azure -o wide
 
+# Check which node the webapp pod is running
+kubectl get pods -n webapp-secrets -o wide
+
+kubectl logs -n kube-system <provider pod name on the same node> --since=1h
+
+# examples
+# kubectl logs -n kube-system aks-secrets-store-provider-azure-v4z4w --since=1h | grep ^E
+# kubectl logs -n kube-system aks-secrets-store-provider-azure-8grw5 --since=1h | grep ^E
 
 ```

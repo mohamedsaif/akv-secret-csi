@@ -189,6 +189,12 @@ This can be accomplished by going the your AKS node pool VMSS under the infra re
 
 Browse to the [src/SecretsCSIWebApp/k8s](src/SecretsCSIWebApp/k8s/) and update all files with your environment variables:
 
+Things to replace in the deployment files:
+- webapp-secrets-spc.yaml: userAssignedIdentityID, keyvaultName, tenantId
+- secrets-csi-webapp-deployment.yaml: image (to point to your ACR)
+
+Once you updated the above files, you are ready to execute the apply commands:
+
 ```bash
 # Assuming you have a bash terminal on k8s folder, execute the following commands:
 kubectl apply -f webapp-secrets-ns.yaml

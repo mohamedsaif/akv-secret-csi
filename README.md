@@ -380,6 +380,10 @@ curl -v -k --resolve my.$CERT_CN:8433:127.0.0.1 https://my.$CERT_CN:8433
 Below are few commands that are helpful in debugging issues:
 
 ```bash
+
+#############################
+# CSI Secret Store Provider #
+#############################
 # if installed via AKS add-on
 kubectl get pods -n kube-system -l 'app in (secrets-store-csi-driver, secrets-store-provider-azure)' -o wide
 
@@ -387,7 +391,7 @@ kubectl get pods -n kube-system -l 'app in (secrets-store-csi-driver, secrets-st
 kubectl get pods -n kube-system -l app=csi-secrets-store-provider-azure -o wide
 
 # Check which node the webapp pod is running
-kubectl get pods -n webapp-secrets -o wide
+kubectl get pods,secrets -n webapp-secrets -o wide
 
 kubectl logs -n kube-system <provider pod name on the same node> --since=1h
 
@@ -396,7 +400,9 @@ kubectl logs -n kube-system <provider pod name on the same node> --since=1h
 # kubectl logs -n kube-system aks-secrets-store-provider-azure-w5v62 --since=1h | grep ^E
 # kubectl logs -n kube-system csi-csi-secrets-store-provider-azure-9c6s2 > csi-csi-secrets-store-provider-azure-9c6s2-logs.txt
 
-# Ingress diagnostics
+#############################
+# Nginx ingress diagnostics #
+#############################
 NGINX_CONTROLLER_POD=$(kubectl get pods -n nginx -l app.kubernetes.io/name=ingress-nginx -o jsonpath='{.items[0].metadata.name}')
 echo $NGINX_CONTROLLER_POD
 kubectl logs -n nginx $NGINX_CONTROLLER_POD -c controller

@@ -65,6 +65,34 @@ az acr build -t csi-clients/secrets-csi-webapp:{{.Run.ID}} -t csi-clients/secret
 
 ```
 
+By a quick look at [Index.cshtml.cs](src/SecretsCSIWebApp/Pages/Index.cshtml.cs), you will find secrets reading logic:
+
+```csharp
+
+public void OnGet()
+{
+    //ViewBag.Message = "System version 1";
+    string sbKey = Environment.GetEnvironmentVariable("sb-env-secret") ?? "NA";
+    string storageKey = Environment.GetEnvironmentVariable("storage-env-secret") ?? "NA";
+    string sbKeyFile = "NA";
+    string secretsFolder = Path.Combine(hostEnvironment.WebRootPath, "secrets");
+    string sbSecretFile = Path.Combine(secretsFolder, "servicebus-key");
+    if (System.IO.File.Exists(sbSecretFile))
+        sbKeyFile = System.IO.File.ReadAllText(sbSecretFile);
+
+    StorageConnection = storageKey;
+    SBConnection = sbKey;
+    MountData = $"Secret found at ({sbSecretFile}): {sbKeyFile}";
+}
+
+```
+
+As you can see from the code, I'm trying to read the following:
+- From environment variables synced k8s secrets for ```sbKey``` and ```storageKey```
+- From mounted volume [../secrets/servicebus-key]
+
+My objective hear to show that environment based secrets will not be rotated unless the pod restart while mounted volume secrets can be rotated without restart (implementing some volume watcher logic can pick the new secret when updated).
+
 ### Azure deployments
 
 I'm assuming already you have already provisioned:
@@ -257,6 +285,7 @@ kubectl logs -n kube-system <provider pod name on the same node> --since=1h
 
 # examples
 # kubectl logs -n kube-system aks-secrets-store-provider-azure-v4z4w --since=1h | grep ^E
-# kubectl logs -n kube-system aks-secrets-store-provider-azure-8grw5 --since=1h | grep ^E
+# kubectl logs -n kube-system aks-secrets-store-provider-azure-w5v62 --since=1h | grep ^E
+# kubectl logs -n kube-system csi-csi-secrets-store-provider-azure-9c6s2 > csi-csi-secrets-store-provider-azure-9c6s2-logs.txt
 
 ```

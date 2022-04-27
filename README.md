@@ -213,6 +213,8 @@ This can be accomplished by going the your AKS node pool VMSS under the infra re
 
 ![vmss-mi](res/vmss-mi.jpg)
 
+>NOTE: In this sample, I opted to use the same user assigned managed identity and key vault to store the TLS certificate, but in production scenarios you might consider using a separate (like central) key vault with its user assigned identity to retrieve the TLS cert.
+
 ### Deployment to AKS
 
 Browse to the [src/SecretsCSIWebApp/k8s](src/SecretsCSIWebApp/k8s/) and update all files with your environment variables:
@@ -265,7 +267,113 @@ Also if you check the pod's Kubernetes events, you should see rotation events:
 
 ![aks-rotation](res/webapp-rotation.jpg)
 
+### Ingress TLS
 
+In order to demonstrate using the secret store CSI driver with TLS, I'm using nginx ingress controller as the k8s ingress implementation, although same concepts might very well apply with other ingress implementations.
+
+For the sake of completeness, I will demonstrate end-to-end implementation approach that consist of:
+- Creating self-signed TLS certificate (with custom private domain)
+- Deploying nginx ingress controller (via helm)
+- Deploying the ingress for **secrets-csi-webapp-service** and updating the webapp deployment with the TLS secret
+
+#### TLS self-signed cert
+
+Here I'm generating a self-signed cert using ```openssl```:
+
+```bash
+
+# Preparing TLS certs
+CERT_NAME=secrets-csi-webapp-apps-az-mohamedsaif-com
+CERT_CN=secrets-csi-webapp.apps.az.mohamedsaif.com
+
+AKV_NAME=aks-weu-kv
+
+mkdir certs
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -out certs/$CERT_NAME-tls.crt \
+    -keyout certs/$CERT_NAME-tls.key \
+    -subj "/CN=$CERT_CN/O=$CERT_CN"
+
+openssl pkcs12 -export -in certs/$CERT_NAME-tls.crt -inkey certs/$CERT_NAME-tls.key  -out certs/$CERT_NAME.pfx
+# skip Password prompt to have empty password pfx
+
+# import the certificate to key vault
+az keyvault certificate import --vault-name $AKV_NAME -n $CERT_NAME -f certs/$CERT_NAME.pfx
+
+# Validate certificate files
+openssl x509 -in certs/$CERT_NAME-tls.crt -text -noout
+
+```
+
+By checking out the key vault on Azure Portal, you should find the new certificate:
+
+![kv-tls-cert](res/kv-tls-cert.jpg)
+
+#### Installing nginx ingress controller
+
+I've opted to install the ingress controller with a private load balancer, which is a common practice in production systems (avoid exposing public services directly from AKS)
+
+```bash
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+kubectl create namespace nginx
+
+# This installation assumes that the application would be a different namespace from the ingress controller and it will have the TLS secret:
+helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
+    --namespace nginx \
+    --set controller.replicaCount=1 \
+    --set controller.nodeSelector."beta\.kubernetes\.io/os"=linux \
+    --set defaultBackend.nodeSelector."beta\.kubernetes\.io/os"=linux \
+    -f - <<EOF
+controller:
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+EOF
+
+```
+
+#### Deploying the ingress
+
+Now it is time to deploy our ingress
+
+For the scenario to work, we need:
+- Deploy the new secret provider class the holds the TLS secret to the application namespace
+- Update our webapp deployment to mount the TLS secret (as the ingress and k8s TLS secret are scoped to a namespace which is the application namespace in this case)
+- Deploy the ingress in the application namespace
+
+Before applying the deployment files, please update the following:
+- **ingress-tls-spc.yaml**: $CERT_NAME (in several locations), userAssignedIdentityID, keyvaultName, tenantId
+- **secrets-csi-webapp-tls-deployment.yaml**: image (to point to your ACR)
+
+```bash
+
+kubectl apply -f ingress-tls-spc.yaml
+kubectl apply -f secrets-csi-webapp-tls-deployment.yaml
+kubectl apply -f ingress.yaml
+
+# Validate
+kubectl get pods,secrets,ingress -n webapp-secrets
+# NAME                                     READY   STATUS    RESTARTS   AGE
+# pod/secrets-csi-webapp-dc89d9749-qtczz   1/1     Running   0          7m51s
+
+# # NAME                         TYPE                                  DATA   AGE
+# secret/default-token-wj842   kubernetes.io/service-account-token   3      47h
+# secret/ingress-tls-csi       kubernetes.io/tls                     2      21m
+# secret/sb-env-secret         Opaque                                1      46h
+# secret/storage-env-secret    Opaque                                1      46h
+
+# NAME                                       CLASS    HOSTS                                           ADDRESS       PORTS     AGE
+# ingress.networking.k8s.io/webapp-ingress   <none>   my.secrets-csi-webapp.apps.az.mohamedsaif.com   10.171.0.66   80, 443   76s
+
+# Test the access
+kubectl port-forward -n nginx service/nginx-ingress-ingress-nginx-controller 8433:443
+echo https://my.$CERT_CN:8433
+curl -v -k --resolve my.$CERT_CN:8433:127.0.0.1 https://my.$CERT_CN:8433
+
+```
 
 ## Diagnosis
 
@@ -287,5 +395,14 @@ kubectl logs -n kube-system <provider pod name on the same node> --since=1h
 # kubectl logs -n kube-system aks-secrets-store-provider-azure-v4z4w --since=1h | grep ^E
 # kubectl logs -n kube-system aks-secrets-store-provider-azure-w5v62 --since=1h | grep ^E
 # kubectl logs -n kube-system csi-csi-secrets-store-provider-azure-9c6s2 > csi-csi-secrets-store-provider-azure-9c6s2-logs.txt
+
+# Ingress diagnostics
+NGINX_CONTROLLER_POD=$(kubectl get pods -n nginx -l app.kubernetes.io/name=ingress-nginx -o jsonpath='{.items[0].metadata.name}')
+echo $NGINX_CONTROLLER_POD
+kubectl logs -n nginx $NGINX_CONTROLLER_POD -c controller
+
+# If you want to restart the deployment of nginx:
+kubectl rollout restart -n nginx deploy/nginx-ingress-ingress-nginx-controller
+kubectl get pods -n nginx
 
 ```
